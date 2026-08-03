@@ -89,7 +89,6 @@
         <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-72 bg-cgp-sidebar flex flex-col h-full transform -translate-x-full md:relative md:translate-x-0 transition-transform duration-300">
             <div class="flex items-center justify-between px-4 py-3">
                 <div class="flex items-center gap-2">
-                    <!-- LOGO DE LISTA SVG -->
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white w-6 h-6 md:w-8 md:h-8">
                         <line x1="8" y1="6" x2="21" y2="6"></line>
                         <line x1="8" y1="12" x2="21" y2="12"></line>
@@ -195,6 +194,7 @@
         
         let currentConfig = null;
         let tempForcePosition = '';
+        let lastTapTime = 0;
         
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('-translate-x-full');
@@ -219,14 +219,32 @@
             }
         }
 
-        sendBtn.addEventListener('dblclick', (e) => { e.preventDefault(); openInvisiblePanel(); });
-        
-        let pressTimer;
-        sendBtn.addEventListener('touchstart', (e) => { 
-            pressTimer = setTimeout(() => { openInvisiblePanel(); }, 600); 
-        }, {passive: true});
-        sendBtn.addEventListener('touchend', () => clearTimeout(pressTimer));
-        sendBtn.addEventListener('touchmove', () => clearTimeout(pressTimer));
+        // Lógica para escritorio: Doble clic abre el panel si está vacío
+        sendBtn.addEventListener('dblclick', (e) => {
+            if (userInput.value.trim() === '') {
+                e.preventDefault();
+                openInvisiblePanel();
+            }
+        });
+
+        // Lógica para móvil: Toque simple envía, doble toque abre el panel
+        sendBtn.addEventListener('touchend', (e) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTapTime;
+
+            if (userInput.value.trim() !== '') {
+                // Hay texto escrito: enviar mensaje inmediatamente (como el Enter)
+                e.preventDefault();
+                sendMessage();
+            } else {
+                // No hay texto: detectar doble toque (intervalo menor a 300ms)
+                if (tapLength < 300 && tapLength > 0) {
+                    e.preventDefault();
+                    openInvisiblePanel();
+                }
+            }
+            lastTapTime = currentTime;
+        });
 
         window.addEventListener('load', () => {
             const { db, ref, onValue } = window.firebaseDb;
@@ -319,33 +337,42 @@
             }
         }
 
-        function ensure100Items(list) {
-            let cleanList = list.map(item => item.replace(/^\d+\.\s*/, '').trim()).filter(item => item);
-            while (cleanList.length < 100) {
-                cleanList.push(`Opción ${cleanList.length + 1}`);
-            }
-            return cleanList.slice(0, 100);
-        }
-
         function processForcedList(config) {
             const pos = config.forcePosition || 1;
-            let newList = ensure100Items(config.list);
+            
+            // Limpiar la lista de números y espacios, y filtrar vacíos.
+            // Se respeta la longitud exacta ingresada por el usuario.
+            let newList = config.list.map(item => item.replace(/^\d+\.\s*/, '').trim()).filter(item => item);
+
             const forcedItemNormalized = config.forcedItem.toLowerCase().trim();
             let originalIndex = -1;
-            
+
             for (let i = 0; i < newList.length; i++) {
-                if (newList[i].toLowerCase() === forcedItemNormalized) { originalIndex = i; break; }
+                if (newList[i].toLowerCase() === forcedItemNormalized) {
+                    originalIndex = i;
+                    break;
+                }
             }
-            
-            if (originalIndex !== -1) newList.splice(originalIndex, 1);
-            else newList.pop(); 
-            
+
+            // Si el item ya existe, lo quitamos de su posición original
+            if (originalIndex !== -1) {
+                newList.splice(originalIndex, 1);
+            }
+
+            // Calcular la nueva posición (ajustada a base 0)
             let adjustedPosition = pos - 1;
-            if (originalIndex !== -1 && originalIndex < pos - 1) adjustedPosition = pos - 2;
+            if (originalIndex !== -1 && originalIndex < pos - 1) {
+                adjustedPosition = pos - 2;
+            }
+
+            // Asegurar que la posición esté dentro de los límites de la lista actual
             if (adjustedPosition < 0) adjustedPosition = 0;
             if (adjustedPosition > newList.length) adjustedPosition = newList.length;
-            
+
+            // Insertar el item forzado en la posición calculada
             newList.splice(adjustedPosition, 0, config.forcedItem);
+
+            // Renumerar la lista final manteniendo la cantidad exacta de items
             return newList.map((item, index) => `${index + 1}. ${item}`);
         }
 
